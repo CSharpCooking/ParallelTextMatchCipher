@@ -1,0 +1,8 @@
+﻿################################################################################
+# Данный GITIGNORE-файл был автоматически создан Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/ParallelTextMatchCipherConsole/.vs/ParallelTextMatchCipherConsole
+/ParallelTextMatchCipherConsole/bin/Debug
+/ParallelTextMatchCipherConsole/obj/Debug
