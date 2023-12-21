@@ -7,6 +7,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
+using System.Threading;
+
 
 namespace ParallelTextMatchCipherConsole
 {
@@ -20,6 +24,12 @@ namespace ParallelTextMatchCipherConsole
             // Пароль для генерации секретного ключа
             const string password = "Пароль для генерации ключа";
 
+            // Разделитель для разбивки текста на блоки
+            char[] separators = new[] { ' ' };
+
+            // Минимальный размер блока
+            const int blockSize = 3;
+
             SymmetricAlgorithm algorithm = Aes.Create();
             byte[] iv = { 15, 122, 132, 5, 93, 198, 44, 31, 9, 39, 241, 49, 250, 188, 80, 7 };
             byte[] key;
@@ -28,92 +38,134 @@ namespace ParallelTextMatchCipherConsole
                 byte[] passwordBytes = Encoding.UTF8.GetBytes(password);
                 key = sha256.ComputeHash(passwordBytes);
             }
-            ICryptoTransform encryptor = algorithm.CreateEncryptor(key, iv);
-            ICryptoTransform decryptor = algorithm.CreateDecryptor(key, iv);
+
+            var encryptor = new ThreadLocal<ICryptoTransform>(() => algorithm.CreateEncryptor(key, iv), trackAllValues: true);
+            var decryptor = new ThreadLocal<ICryptoTransform>(() => algorithm.CreateDecryptor(key, iv), trackAllValues: true);
 
             // Пример исходного текста
-            string sourceText = "Ваш_исходный_1_текст_1_здесь.";
+            string sourceText = "Ваш_исходный_1_текст_5_здесь.1234345";
 
             // Разбиваем текст на блоки
-            var textBlocks = SplitText(sourceText, new[] { ' ' }, 3);
+            var textBlocks = SplitText(sourceText, separators, blockSize);
 
             var regex = new Regex($@"({baseRegex})|((.(?!{baseRegex}))+.)");
 
-            // Конкурентная коллекция для хранения набора <индекс_блока,индекс_соответствия,хэш_код,шифр_блок>
-            var fragments = new ConcurrentBag<Tuple<long, long, string, string>>();
+            // Конкурентная коллекция для хранения набора <флаг_приватности,индекс_блока,индекс_соответствия,текстовый_блок>
+            var fragments = new ConcurrentBag<CipherDataSet>();
             Parallel.ForEach(textBlocks, (block, blockState, i_b) =>
             {
                 var matches = regex.Matches(block).OfType<Match>().ToList();
                 Parallel.ForEach(matches, (match, matchState, i_m) =>
                 {
                     if (Regex.IsMatch(match.Value, baseRegex))
-                    {
-                        fragments.Add(Tuple.Create(i_b, i_m, "хэш_код", "шифр_блок"));
-                    }
+                        fragments.Add(new CipherDataSet
+                        {
+                            privateText = true,
+                            indexBlock = Encrypt(i_b.ToString(), encryptor),
+                            indexMatch = Encrypt(i_m.ToString(), encryptor),
+                            text = Encrypt(match.Value, encryptor)
+                        });
                     else
-                    {
-                        fragments.Add(Tuple.Create(i_b, i_m, String.Empty, match.Value));
-                    }
+                        fragments.Add(new CipherDataSet
+                        {
+                            privateText = false,
+                            indexBlock = Encrypt(i_b.ToString(), encryptor),
+                            indexMatch = Encrypt(i_m.ToString(), encryptor),
+                            text = match.Value
+                        });
                 });
             });
 
-            var orderedFragments = fragments
+            SerializeToJson(fragments, "c:\\Users\\landw\\Downloads\\PrivateText.json");
+
+            var fragments2 = DeserializeFromJson("c:\\Users\\landw\\Downloads\\PrivateText.json");
+
+            var orderedFragments = fragments2
                 .AsParallel()
-                .OrderBy(f => f.Item1)
-                .ThenBy(f => f.Item2)
-                .Select(f => Tuple.Create(f.Item1, f.Item2, f.Item3, f.Item4))
+                .OrderBy(ds => Int64.Parse(Decrypt(ds.indexBlock, decryptor)))
+                .ThenBy(ds => Int64.Parse(Decrypt(ds.indexMatch, decryptor)))
+                .Select(ds => ds.privateText ? Decrypt(ds.text, decryptor) : ds.text)
                 .ToList();
 
             foreach (var fragment in orderedFragments)
+                Console.Write(fragment);
+
+            // Освобождение ресурсов ICryptoTransform в каждом потоке
+            foreach (var enc in encryptor.Values)
             {
-                Console.WriteLine(fragment.Item4);
+                enc.Dispose();
             }
 
+            foreach (var dec in decryptor.Values)
+            {
+                dec.Dispose();
+            }
+
+            // Освобождение ресурсов ThreadLocal<ICryptoTransform>
             encryptor.Dispose();
             decryptor.Dispose();
         }
 
-        static byte[] EncryptMatch(string match, ICryptoTransform encryptor)
+        [DataContract]
+        public struct CipherDataSet
         {
-            byte[] data = Encoding.UTF8.GetBytes(match);
+            [DataMember]
+            public bool privateText;
+            [DataMember]
+            public string indexBlock;
+            [DataMember]
+            public string indexMatch;
+            [DataMember]
+            public string text;
+        }
+
+        static void SerializeToJson(ConcurrentBag<CipherDataSet> fragments, string filePath)
+        {
+            try
+            {
+                var serializer = new DataContractJsonSerializer(typeof(ConcurrentBag<CipherDataSet>));
+                using (var fileStream = File.Create(filePath))
+                {
+                    serializer.WriteObject(fileStream, fragments);
+                }
+            }
+            catch (Exception ex) { Console.WriteLine(ex.Message); }
+        }
+
+        static IEnumerable<CipherDataSet> DeserializeFromJson(string filePath)
+        {
+            var serializer = new DataContractJsonSerializer(typeof(IEnumerable<CipherDataSet>));
+            using (var fileStream = File.OpenRead(filePath))
+            {
+                return (IEnumerable<CipherDataSet>)serializer.ReadObject(fileStream);
+            }
+        }
+
+        static string Encrypt(string text, ThreadLocal<ICryptoTransform> encryptor)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(text);
             byte[] encryptedData;
             using (MemoryStream ms = new MemoryStream())
             {
-                using (Stream c = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
+                using (Stream c = new CryptoStream(ms, encryptor.Value, CryptoStreamMode.Write))
                 {
                     c.Write(data, 0, data.Length);
                 }
                 encryptedData = ms.ToArray();
             }
-            return encryptedData;
+            return Convert.ToBase64String(encryptedData);
         }
 
-        static string DecryptMatch(byte[] match, ICryptoTransform decryptor)
+        static string Decrypt(string text, ThreadLocal<ICryptoTransform> decryptor)
         {
-            using (MemoryStream msInput = new MemoryStream(match))
-            using (CryptoStream cryptoStream = new CryptoStream(msInput, decryptor, CryptoStreamMode.Read))
+            using (MemoryStream msInput = new MemoryStream(Convert.FromBase64String(text)))
+            using (CryptoStream cryptoStream = new CryptoStream(msInput, decryptor.Value, CryptoStreamMode.Read))
             using (MemoryStream msOutput = new MemoryStream())
             {
                 cryptoStream.CopyTo(msOutput); // Копируем расшифрованные данные в msOutput
                 return Encoding.UTF8.GetString(msOutput.ToArray()); // Преобразуем в строку
             }
         }
-
-        //static string ComputeHash(string input)
-        //{
-        //    using (var sha256 = SHA256.Create())
-        //    {
-        //        var bytes = Encoding.UTF8.GetBytes(input);
-        //        var hash = sha256.ComputeHash(bytes);
-        //        return Convert.ToBase64String(hash);
-        //    }
-        //}
-
-        //static void DecryptText(string filePath, string sqlitePath)
-        //{
-        //    // Чтение файла и таблицы SQLite, замена хеш-кодов на исходные данные
-        //    // ...
-        //}
 
         // Метод разбиения текста на блоки
         static List<string> SplitText(string text, char[] delimiters, int maxBlockSize)
