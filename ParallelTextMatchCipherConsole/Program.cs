@@ -22,7 +22,7 @@ namespace ParallelTextMatchCipherConsole
             const string baseRegex = @"\d+";
 
             // Пароль для генерации секретного ключа
-            const string password = "Пароль для генерации ключа";
+            const string password = "Пароль для генерации ключа"; 
 
             // Разделитель для разбивки текста на блоки
             char[] separators = new[] { '_' };
@@ -43,12 +43,16 @@ namespace ParallelTextMatchCipherConsole
             var decryptor = new ThreadLocal<ICryptoTransform>(() => algorithm.CreateDecryptor(key, iv), trackAllValues: true);
 
             // Пример исходного текста
-            string sourceText = "Ваш исходный1_текст здесь1.";
+            string sourceText = @"Га́рри Ки́мович Каспа́ров (фамилия при рождении Вайнште́йн; род. 13 апреля 1963, 
+Баку, Азербайджанская ССР, СССР) — советский и российский шахматист,
+13 - й чемпион мира по шахматам, шахматный литератор и политик, часто
+признаваемый величайшим шахматистом
+.";
 
             // Разбиваем текст на блоки
             var textBlocks = SplitText(sourceText, separators, blockSize);
 
-            var regex = new Regex($@"({baseRegex})|((.(?!{baseRegex}))*.)");
+            var regex = new Regex($@"({baseRegex})|((.(?!{baseRegex}))*.)",RegexOptions.Singleline);
 
             // Конкурентная коллекция для хранения набора <флаг_приватности,индекс_блока,индекс_соответствия,текстовый_блок>
             var fragments = new ConcurrentBag<CipherDataSet>();
