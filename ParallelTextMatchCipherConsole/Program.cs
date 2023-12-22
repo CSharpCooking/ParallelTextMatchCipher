@@ -25,7 +25,7 @@ namespace ParallelTextMatchCipherConsole
             const string password = "Пароль для генерации ключа";
 
             // Разделитель для разбивки текста на блоки
-            char[] separators = new[] { ' ' };
+            char[] separators = new[] { '_' };
 
             // Минимальный размер блока
             const int blockSize = 3;
@@ -43,12 +43,12 @@ namespace ParallelTextMatchCipherConsole
             var decryptor = new ThreadLocal<ICryptoTransform>(() => algorithm.CreateDecryptor(key, iv), trackAllValues: true);
 
             // Пример исходного текста
-            string sourceText = "Ваш_исходный_1_текст_5_здесь.1234345";
+            string sourceText = "Ваш исходный1_текст здесь1.";
 
             // Разбиваем текст на блоки
             var textBlocks = SplitText(sourceText, separators, blockSize);
 
-            var regex = new Regex($@"({baseRegex})|((.(?!{baseRegex}))+.)");
+            var regex = new Regex($@"({baseRegex})|((.(?!{baseRegex}))*.)");
 
             // Конкурентная коллекция для хранения набора <флаг_приватности,индекс_блока,индекс_соответствия,текстовый_блок>
             var fragments = new ConcurrentBag<CipherDataSet>();
