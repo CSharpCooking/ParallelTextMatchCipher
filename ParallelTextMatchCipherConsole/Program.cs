@@ -61,14 +61,14 @@ namespace ParallelTextMatchCipherConsole
                         fragments.Add(new CipherDataSet
                         {
                             privateText = true,
-                            id = new IndexData { b_block = i_b, a_match = i_m }.EncryptID(encryptor),
+                            id = new IndexData { block = i_b, match = i_m }.EncryptID(encryptor),
                             text = Encrypt(match.Value, encryptor)
                         });
                     else
                         fragments.Add(new CipherDataSet
                         {
                             privateText = false,
-                            id = new IndexData { b_block = i_b, a_match = i_m }.EncryptID(encryptor),
+                            id = new IndexData { block = i_b, match = i_m }.EncryptID(encryptor),
                             text = match.Value
                         });
                 });
@@ -84,7 +84,7 @@ namespace ParallelTextMatchCipherConsole
                 {
                     var id = new IndexData();
                     id.DecryptID(ds.id, decryptor);
-                    return id.b_block + id.a_match;
+                    return id.block + id.match;
                 })
                 .Select(ds => ds.privateText ? Decrypt(ds.text, decryptor) : ds.text)
                 .ToList();
@@ -122,10 +122,10 @@ namespace ParallelTextMatchCipherConsole
         [DataContract]
         public struct IndexData
         {
-            [DataMember]
-            public long a_match;
-            [DataMember]
-            public long b_block;
+            [DataMember(Order = 1)]
+            public long match;
+            [DataMember(Order = 2)]
+            public long block;
 
             public string EncryptID(ThreadLocal<ICryptoTransform> encryptor)
             {
@@ -144,8 +144,8 @@ namespace ParallelTextMatchCipherConsole
                 DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(IndexData));
                 IndexData data = (IndexData)serializer.ReadObject(new MemoryStream(Encoding.UTF8.GetBytes(json)));
 
-                this.b_block = data.b_block;
-                this.a_match = data.a_match;
+                this.block = data.block;
+                this.match = data.match;
             }
         }
         static void SerializeToJson(ConcurrentBag<CipherDataSet> fragments, string filePath)
