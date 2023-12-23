@@ -22,7 +22,7 @@ namespace ParallelTextMatchCipherConsole
             const string baseRegex = @"\d+";
 
             // Пароль для генерации секретного ключа
-            const string password = "Пароль для генерации ключа"; 
+            const string password = "Пароль для генерации ключа";
 
             // Разделитель для разбивки текста на блоки
             char[] separators = new[] { '_' };
@@ -43,16 +43,12 @@ namespace ParallelTextMatchCipherConsole
             var decryptor = new ThreadLocal<ICryptoTransform>(() => algorithm.CreateDecryptor(key, iv), trackAllValues: true);
 
             // Пример исходного текста
-            string sourceText = @"Га́рри Ки́мович Каспа́ров (фамилия при рождении Вайнште́йн; род. 13 апреля 1963, 
-Баку, Азербайджанская ССР, СССР) — советский и российский шахматист,
-13 - й чемпион мира по шахматам, шахматный литератор и политик, часто
-признаваемый величайшим шахматистом
-.";
+            string sourceText = @"Текст 1 текст 2.";
 
             // Разбиваем текст на блоки
             var textBlocks = SplitText(sourceText, separators, blockSize);
 
-            var regex = new Regex($@"({baseRegex})|((.(?!{baseRegex}))*.)",RegexOptions.Singleline);
+            var regex = new Regex($@"({baseRegex})|((.(?!{baseRegex}))*.)", RegexOptions.Singleline);
 
             // Конкурентная коллекция для хранения набора <флаг_приватности,индекс_блока,индекс_соответствия,текстовый_блок>
             var fragments = new ConcurrentBag<CipherDataSet>();
@@ -65,16 +61,14 @@ namespace ParallelTextMatchCipherConsole
                         fragments.Add(new CipherDataSet
                         {
                             privateText = true,
-                            indexBlock = Encrypt(i_b.ToString(), encryptor),
-                            indexMatch = Encrypt(i_m.ToString(), encryptor),
+                            id = new IndexData { b_block = i_b, a_match = i_m }.EncryptID(encryptor),
                             text = Encrypt(match.Value, encryptor)
                         });
                     else
                         fragments.Add(new CipherDataSet
                         {
                             privateText = false,
-                            indexBlock = Encrypt(i_b.ToString(), encryptor),
-                            indexMatch = Encrypt(i_m.ToString(), encryptor),
+                            id = new IndexData { b_block = i_b, a_match = i_m }.EncryptID(encryptor),
                             text = match.Value
                         });
                 });
@@ -86,8 +80,12 @@ namespace ParallelTextMatchCipherConsole
 
             var orderedFragments = fragments2
                 .AsParallel()
-                .OrderBy(ds => Int64.Parse(Decrypt(ds.indexBlock, decryptor)))
-                .ThenBy(ds => Int64.Parse(Decrypt(ds.indexMatch, decryptor)))
+                .OrderBy(ds =>
+                {
+                    var id = new IndexData();
+                    id.DecryptID(ds.id, decryptor);
+                    return id.b_block + id.a_match;
+                })
                 .Select(ds => ds.privateText ? Decrypt(ds.text, decryptor) : ds.text)
                 .ToList();
 
@@ -116,13 +114,40 @@ namespace ParallelTextMatchCipherConsole
             [DataMember]
             public bool privateText;
             [DataMember]
-            public string indexBlock;
-            [DataMember]
-            public string indexMatch;
+            public string id;
             [DataMember]
             public string text;
         }
 
+        [DataContract]
+        public struct IndexData
+        {
+            [DataMember]
+            public long a_match;
+            [DataMember]
+            public long b_block;
+
+            public string EncryptID(ThreadLocal<ICryptoTransform> encryptor)
+            {
+                DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(IndexData));
+                MemoryStream ms = new MemoryStream();
+                serializer.WriteObject(ms, this);
+                string data = Encoding.UTF8.GetString(ms.ToArray());
+
+                return Encrypt(data, encryptor);
+            }
+
+            public void DecryptID(string encryptedData, ThreadLocal<ICryptoTransform> decryptor)
+            {
+                string json = Decrypt(encryptedData, decryptor);
+
+                DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(IndexData));
+                IndexData data = (IndexData)serializer.ReadObject(new MemoryStream(Encoding.UTF8.GetBytes(json)));
+
+                this.b_block = data.b_block;
+                this.a_match = data.a_match;
+            }
+        }
         static void SerializeToJson(ConcurrentBag<CipherDataSet> fragments, string filePath)
         {
             try
