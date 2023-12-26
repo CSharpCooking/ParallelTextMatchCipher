@@ -1,15 +1,17 @@
 ﻿using Meisui.Random;
+using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace Stego
 {
-    public class StegoAlg
+    public class StegoAlg : IDisposable
     {
         private readonly int _containerBitLength;
         private readonly int _hiddenCodeLength;
         private readonly char[,] _etalons;
         private readonly List<int>[] _coordinates;
-        private readonly MersenneTwister _generator;
+        private readonly ThreadLocal<MersenneTwister> _generator;
 
         public StegoAlg(int n, char[,] etalons, char[,] key, MersenneTwister generator)
         {
@@ -17,12 +19,16 @@ namespace Stego
             _hiddenCodeLength = (_containerBitLength * 3) / 8;
             _etalons = etalons;
             _coordinates = GetCoordinates(key);
-            _generator = generator;
+            _generator = new ThreadLocal<MersenneTwister>(() => new MersenneTwister());
         }
 
         public StegoAlg(int n, char[,] etalons, char[,] key)
             : this(n, etalons, key, new MersenneTwister())
-        { }
+        {}
+
+        public StegoAlg(int n) 
+            : this(n, new Stegomask(n).GetEtalons(), new Stegomask(n).GetKey())
+        {}
 
         public int HiddenCodeLength => _hiddenCodeLength;
 
@@ -59,11 +65,22 @@ namespace Stego
                 {
                     return false;
                 }
-                multiplier *= 10;
+
                 code += (byte)(digit * multiplier);
+                multiplier *= 10;
             }
 
             return true;
+        }
+
+        public byte Disclose(byte[] hiddenCode)
+        {
+            if (!TryDisclose(hiddenCode, out var code))
+            {
+                throw new Exception("Не удалось распознать код");
+            }
+
+            return code;
         }
 
         private int Disclose(byte[] hiddenCode, int offset)
@@ -84,6 +101,7 @@ namespace Stego
                         break;
                     }
                 }
+
                 if (isMatch)
                 {
                     return i;
@@ -114,10 +132,15 @@ namespace Stego
 
             for (int i = 0; i < gamma.Length; i++)
             {
-                gamma[i] = (byte)_generator.genrand_Int32();
+                gamma[i] = (byte)_generator.Value.genrand_Int32();
             }
 
             return gamma;
+        }
+
+        public void Dispose()
+        {
+            //_generator.Dispose();
         }
     }
 }

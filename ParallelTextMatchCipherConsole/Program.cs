@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Threading;
+using Stego;
 
 
 namespace ParallelTextMatchCipherConsole
@@ -18,46 +19,25 @@ namespace ParallelTextMatchCipherConsole
     {
         static void Main(string[] args)
         {
-            // Регулярное выражение, задаваемое пользователем 
-            const string baseRegex = @"\d+";
-
-            // Пароль для генерации секретного ключа
-            const string password = "Пароль для генерации ключа";
-
+            const string baseRegex = @"\d+"; // Регулярное выражение, задаваемое пользователем 
             const string privateTextPath = "PrivateText.json";
-
-            // Разделитель для разбивки текста на блоки
-            char[] separators = new[] { ' ' };
-
-            // Минимальный размер блока
+            const int n = 36;
             const int blockSize = 7;
 
-            SymmetricAlgorithm algorithm = Aes.Create();
-            byte[] iv = { 15, 122, 132, 5, 93, 198, 44, 31, 9, 39, 241, 49, 250, 188, 80, 7 };
-            byte[] key;
-            using (SHA256 sha256 = SHA256.Create())
-            {
-                byte[] passwordBytes = Encoding.UTF8.GetBytes(password);
-                key = sha256.ComputeHash(passwordBytes);
-            }
-
-            var encryptor = new ThreadLocal<ICryptoTransform>(() => algorithm.CreateEncryptor(key, iv), trackAllValues: true);
-            var decryptor = new ThreadLocal<ICryptoTransform>(() => algorithm.CreateDecryptor(key, iv), trackAllValues: true);
-
-            // Пример исходного текста
             string sourceText = @"Га́рри Ки́мович Каспа́ров (фамилия при рождении Вайнште́йн; род. 13 апреля 1963, 
 Баку, Азербайджанская ССР, СССР) — советский и российский шахматист,
 13 - й чемпион мира по шахматам, шахматный литератор и политик, часто
 признаваемый величайшим шахматистом
 .";
 
-            // Разбиваем текст на блоки
+            var separators = new[] { ' ' };
             var textBlocks = SplitText(sourceText, separators, blockSize);
-
             var regex = new Regex($@"({baseRegex})|((.(?!{baseRegex}))*.)", RegexOptions.Singleline);
 
-            // Конкурентная коллекция для хранения набора <флаг_приватности,индекс_блока,индекс_соответствия,текстовый_блок>
-            var fragments = new ConcurrentBag<CipherDataSet>();
+            var stegoMask = new Stegomask(n);
+            var stegoAlg = new StegoAlg(n, stegoMask.GetEtalons(), stegoMask.GetKey());
+            var fragments = new ConcurrentBag<CipherDataSet>(); // Конкурентная коллекция для хранения набора <флаг_приватности,индекс_блока,индекс_соответствия,текстовый_блок>
+
             Parallel.ForEach(textBlocks, (block, blockState, i_b) =>
             {
                 var matches = regex.Matches(block).OfType<Match>().ToList();
@@ -68,8 +48,8 @@ namespace ParallelTextMatchCipherConsole
                         fragments.Add(new CipherDataSet
                         {
                             IsPrivateText = true,
-                            Id = new IndexData { block = i_b, match = i_m }.EncryptID(encryptor),
-                            Text = Encrypt(match.Value, encryptor)
+                            Id = new IndexData { block = i_b, match = i_m }.EncryptID(stegoAlg),
+                            Text = Encrypt(match.Value, stegoAlg)
                         });
                     }
                     else
@@ -77,7 +57,7 @@ namespace ParallelTextMatchCipherConsole
                         fragments.Add(new CipherDataSet
                         {
                             IsPrivateText = false,
-                            Id = new IndexData { block = i_b, match = i_m }.EncryptID(encryptor),
+                            Id = new IndexData { block = i_b, match = i_m }.EncryptID(stegoAlg),
                             Text = match.Value
                         });
                     }
@@ -93,29 +73,18 @@ namespace ParallelTextMatchCipherConsole
                 .OrderBy(ds =>
                 {
                     var id = new IndexData();
-                    id.DecryptID(ds.Id, decryptor);
-                    return id.block + id.match;
+                    id.DecryptID(ds.Id, stegoAlg);
+                    return (id.block, id.match);
                 })
-                .Select(ds => ds.IsPrivateText ? Decrypt(ds.Text, decryptor) : ds.Text)
+                .Select(ds => ds.IsPrivateText ? Decrypt(ds.Text, stegoAlg) : ds.Text)
                 .ToList();
 
             foreach (var fragment in orderedFragments)
+            {
                 Console.Write(fragment);
+            }    
 
-            // Освобождение ресурсов ICryptoTransform в каждом потоке
-            foreach (var enc in encryptor.Values)
-            {
-                enc.Dispose();
-            }
-
-            foreach (var dec in decryptor.Values)
-            {
-                dec.Dispose();
-            }
-
-            // Освобождение ресурсов ThreadLocal<ICryptoTransform>
-            encryptor.Dispose();
-            decryptor.Dispose();
+            stegoAlg.Dispose();
         }
 
         [DataContract]
@@ -137,19 +106,19 @@ namespace ParallelTextMatchCipherConsole
             [DataMember(Order = 2)]
             public long block;
 
-            public string EncryptID(ThreadLocal<ICryptoTransform> encryptor)
+            public string EncryptID(StegoAlg stegoAlg)
             {
                 var serializer = new DataContractJsonSerializer(typeof(IndexData));
                 var ms = new MemoryStream();
                 serializer.WriteObject(ms, this);
                 string data = Encoding.UTF8.GetString(ms.ToArray());
 
-                return Encrypt(data, encryptor);
+                return Encrypt(data, stegoAlg);
             }
 
-            public void DecryptID(string encryptedData, ThreadLocal<ICryptoTransform> decryptor)
+            public void DecryptID(string encryptedData, StegoAlg stegoAlg)
             {
-                string json = Decrypt(encryptedData, decryptor);
+                string json = Decrypt(encryptedData, stegoAlg);
 
                 var serializer = new DataContractJsonSerializer(typeof(IndexData));
                 var data = (IndexData)serializer.ReadObject(new MemoryStream(Encoding.UTF8.GetBytes(json)));
@@ -181,12 +150,12 @@ namespace ParallelTextMatchCipherConsole
             }
         }
 
-        static string Encrypt(string text, ThreadLocal<ICryptoTransform> encryptor)
+        static string Encrypt(string text, StegoAlg stegoAlg)
         {
             byte[] data = Encoding.UTF8.GetBytes(text);
             using (var ms = new MemoryStream())
             {
-                using (Stream c = new CryptoStream(ms, encryptor.Value, CryptoStreamMode.Write))
+                using (Stream c = new StegoStream(ms, stegoAlg))
                 {
                     c.Write(data, 0, data.Length);
                 }
@@ -196,14 +165,14 @@ namespace ParallelTextMatchCipherConsole
             }
         }
 
-        static string Decrypt(string text, ThreadLocal<ICryptoTransform> decryptor)
+        static string Decrypt(string text, StegoAlg stegoAlg)
         {
             using (var msInput = new MemoryStream(Convert.FromBase64String(text)))
-            using (var cryptoStream = new CryptoStream(msInput, decryptor.Value, CryptoStreamMode.Read))
+            using (var stegoStream = new StegoStream(msInput, stegoAlg))
             using (var msOutput = new MemoryStream())
             {
-                cryptoStream.CopyTo(msOutput); // Копируем расшифрованные данные в msOutput
-                return Encoding.UTF8.GetString(msOutput.ToArray()); // Преобразуем в строку
+                stegoStream.CopyTo(msOutput);
+                return Encoding.UTF8.GetString(msOutput.ToArray()); 
             }
         }
 

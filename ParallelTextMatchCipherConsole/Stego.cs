@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Meisui.Random;
 
 namespace Stego
@@ -232,17 +233,19 @@ namespace Stego
             }
         }
 
-        public void GetEtalons(out char[,] etalons)
+        public char[,] GetEtalons()
         {
-            etalons = new char[10, n_kontur];
+            var etalons = new char[10, n_kontur];
             for (int i = 0; i < n_kontur; i++)
                 etalons[0, i] = (char)(_elem[10, i] + 48);
             for (int j = 1; j < 10; j++)
                 for (int i = 0; i < n_kontur; i++)
                     etalons[j, i] = (char)(_elem[j, i] + 48);
+
+            return etalons;
         }
 
-        public void GetKey(out char[,] key) // _sohr_el - маски
+        public char[,] GetKey() // _sohr_el - маски
         {
             int[,] C = new int[10, m + 1];
             int[,] D = new int[10, m + 1];
@@ -374,36 +377,14 @@ namespace Stego
         m4:;
         end_m:;
 
-            key = new char[10, n_kontur];
+            var key = new char[10, n_kontur];
             for (int ii = 0; ii < n_kontur; ii++)
                 key[0, ii] = (char)(_sohr_el[10, ii] + 48);
             for (int jj = 1; jj < 10; jj++)
                 for (int ii = 0; ii < n_kontur; ii++)
                     key[jj, ii] = (char)(_sohr_el[jj, ii] + 48);
-        }
-        public static void Hide(ref char[,] key, ref char[,] etalons, int n, byte t, out char[] stego)
-        {
-            stego = new char[9 * n - 12];
-            MersenneTwister r = new MersenneTwister();
-            for (int k = 0; k < 9 * n - 12; k++)
-                if (key[t, k] == '0')
-                    stego[k] = (char)(r.genrand_Int32() % 2 + 48);
-                else
-                    stego[k] = etalons[t, k];
-        }
 
-        public static byte Disclose(ref char[,] key, ref char[,] etalons, int n, ref char[] stego)
-        {
-            byte j;
-            int k;
-            for (j = 0; j < 10; j++)
-            {
-                for (k = 0; k < 9 * n - 12; k++)
-                    if (key[j, k] == '1')
-                        if (stego[k] != etalons[j, k]) k = 9 * n - 11;
-                if (k == 9 * n - 12) break;
-            }
-            return j;
+            return key;
         }
     }
 }

@@ -14,11 +14,11 @@ namespace Stego
             _stegoAlg = stegoAlg;
         }
 
-        public override bool CanRead => throw new NotImplementedException();
+        public override bool CanRead => true;
 
         public override bool CanSeek => throw new NotImplementedException();
 
-        public override bool CanWrite => throw new NotImplementedException();
+        public override bool CanWrite => true;
 
         public override long Length => throw new NotImplementedException();
 
@@ -34,9 +34,17 @@ namespace Stego
             for (int i = offset; i < count; i++)
             {
                 var hiddenCode = new byte[_stegoAlg.HiddenCodeLength];
-                _stream.Read(hiddenCode, 0, hiddenCode.Length);
+                var readed = _stream.Read(hiddenCode, 0, hiddenCode.Length);
 
-                _stegoAlg.TryDisclose(hiddenCode, out buffer[i]);
+                if (readed < hiddenCode.Length)
+                {
+                    return i;
+                }
+
+                if (!_stegoAlg.TryDisclose(hiddenCode, out buffer[i]))
+                {
+                    throw new Exception("Не удалось распознать");
+                }
             }
 
             return count;
