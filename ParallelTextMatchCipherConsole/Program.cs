@@ -25,10 +25,10 @@ namespace ParallelTextMatchCipherConsole
             const string password = "Пароль для генерации ключа";
 
             // Разделитель для разбивки текста на блоки
-            char[] separators = new[] { '_' };
+            char[] separators = new[] { ' ' };
 
             // Минимальный размер блока
-            const int blockSize = 3;
+            const int blockSize = 7;
 
             SymmetricAlgorithm algorithm = Aes.Create();
             byte[] iv = { 15, 122, 132, 5, 93, 198, 44, 31, 9, 39, 241, 49, 250, 188, 80, 7 };
@@ -43,7 +43,11 @@ namespace ParallelTextMatchCipherConsole
             var decryptor = new ThreadLocal<ICryptoTransform>(() => algorithm.CreateDecryptor(key, iv), trackAllValues: true);
 
             // Пример исходного текста
-            string sourceText = @"Текст 1 текст 2.";
+            string sourceText = @"Га́рри Ки́мович Каспа́ров (фамилия при рождении Вайнште́йн; род. 13 апреля 1963, 
+Баку, Азербайджанская ССР, СССР) — советский и российский шахматист,
+13 - й чемпион мира по шахматам, шахматный литератор и политик, часто
+признаваемый величайшим шахматистом
+.";
 
             // Разбиваем текст на блоки
             var textBlocks = SplitText(sourceText, separators, blockSize);
@@ -84,7 +88,7 @@ namespace ParallelTextMatchCipherConsole
                 {
                     var id = new IndexData();
                     id.DecryptID(ds.id, decryptor);
-                    return id.block + id.match;
+                    return (id.block, id.match);
                 })
                 .Select(ds => ds.privateText ? Decrypt(ds.text, decryptor) : ds.text)
                 .ToList();
