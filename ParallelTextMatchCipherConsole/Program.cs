@@ -24,6 +24,8 @@ namespace ParallelTextMatchCipherConsole
             // Пароль для генерации секретного ключа
             const string password = "Пароль для генерации ключа";
 
+            const string privateTextPath = "PrivateText.json";
+
             // Разделитель для разбивки текста на блоки
             char[] separators = new[] { ' ' };
 
@@ -62,35 +64,39 @@ namespace ParallelTextMatchCipherConsole
                 Parallel.ForEach(matches, (match, matchState, i_m) =>
                 {
                     if (Regex.IsMatch(match.Value, baseRegex))
+                    {
                         fragments.Add(new CipherDataSet
                         {
-                            privateText = true,
-                            id = new IndexData { block = i_b, match = i_m }.EncryptID(encryptor),
-                            text = Encrypt(match.Value, encryptor)
+                            IsPrivateText = true,
+                            Id = new IndexData { block = i_b, match = i_m }.EncryptID(encryptor),
+                            Text = Encrypt(match.Value, encryptor)
                         });
+                    }
                     else
+                    {
                         fragments.Add(new CipherDataSet
                         {
-                            privateText = false,
-                            id = new IndexData { block = i_b, match = i_m }.EncryptID(encryptor),
-                            text = match.Value
+                            IsPrivateText = false,
+                            Id = new IndexData { block = i_b, match = i_m }.EncryptID(encryptor),
+                            Text = match.Value
                         });
+                    }
                 });
             });
 
-            SerializeToJson(fragments, "c:\\Users\\landw\\Downloads\\PrivateText.json");
+            SerializeToJson(fragments, privateTextPath);
 
-            var fragments2 = DeserializeFromJson("c:\\Users\\landw\\Downloads\\PrivateText.json");
+            var fragments2 = DeserializeFromJson(privateTextPath);
 
             var orderedFragments = fragments2
                 .AsParallel()
                 .OrderBy(ds =>
                 {
                     var id = new IndexData();
-                    id.DecryptID(ds.id, decryptor);
-                    return (id.block, id.match);
+                    id.DecryptID(ds.Id, decryptor);
+                    return id.block + id.match;
                 })
-                .Select(ds => ds.privateText ? Decrypt(ds.text, decryptor) : ds.text)
+                .Select(ds => ds.IsPrivateText ? Decrypt(ds.Text, decryptor) : ds.Text)
                 .ToList();
 
             foreach (var fragment in orderedFragments)
@@ -116,11 +122,11 @@ namespace ParallelTextMatchCipherConsole
         public struct CipherDataSet
         {
             [DataMember]
-            public bool privateText;
+            public bool IsPrivateText;
             [DataMember]
-            public string id;
+            public string Id;
             [DataMember]
-            public string text;
+            public string Text;
         }
 
         [DataContract]
@@ -133,8 +139,8 @@ namespace ParallelTextMatchCipherConsole
 
             public string EncryptID(ThreadLocal<ICryptoTransform> encryptor)
             {
-                DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(IndexData));
-                MemoryStream ms = new MemoryStream();
+                var serializer = new DataContractJsonSerializer(typeof(IndexData));
+                var ms = new MemoryStream();
                 serializer.WriteObject(ms, this);
                 string data = Encoding.UTF8.GetString(ms.ToArray());
 
@@ -145,13 +151,14 @@ namespace ParallelTextMatchCipherConsole
             {
                 string json = Decrypt(encryptedData, decryptor);
 
-                DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(IndexData));
-                IndexData data = (IndexData)serializer.ReadObject(new MemoryStream(Encoding.UTF8.GetBytes(json)));
+                var serializer = new DataContractJsonSerializer(typeof(IndexData));
+                var data = (IndexData)serializer.ReadObject(new MemoryStream(Encoding.UTF8.GetBytes(json)));
 
                 this.block = data.block;
                 this.match = data.match;
             }
         }
+
         static void SerializeToJson(ConcurrentBag<CipherDataSet> fragments, string filePath)
         {
             try
@@ -177,23 +184,23 @@ namespace ParallelTextMatchCipherConsole
         static string Encrypt(string text, ThreadLocal<ICryptoTransform> encryptor)
         {
             byte[] data = Encoding.UTF8.GetBytes(text);
-            byte[] encryptedData;
-            using (MemoryStream ms = new MemoryStream())
+            using (var ms = new MemoryStream())
             {
                 using (Stream c = new CryptoStream(ms, encryptor.Value, CryptoStreamMode.Write))
                 {
                     c.Write(data, 0, data.Length);
                 }
-                encryptedData = ms.ToArray();
+
+                var encryptedData = ms.ToArray();
+                return Convert.ToBase64String(encryptedData);
             }
-            return Convert.ToBase64String(encryptedData);
         }
 
         static string Decrypt(string text, ThreadLocal<ICryptoTransform> decryptor)
         {
-            using (MemoryStream msInput = new MemoryStream(Convert.FromBase64String(text)))
-            using (CryptoStream cryptoStream = new CryptoStream(msInput, decryptor.Value, CryptoStreamMode.Read))
-            using (MemoryStream msOutput = new MemoryStream())
+            using (var msInput = new MemoryStream(Convert.FromBase64String(text)))
+            using (var cryptoStream = new CryptoStream(msInput, decryptor.Value, CryptoStreamMode.Read))
+            using (var msOutput = new MemoryStream())
             {
                 cryptoStream.CopyTo(msOutput); // Копируем расшифрованные данные в msOutput
                 return Encoding.UTF8.GetString(msOutput.ToArray()); // Преобразуем в строку

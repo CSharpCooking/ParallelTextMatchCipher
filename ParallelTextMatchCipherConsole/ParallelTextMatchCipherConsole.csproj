@@ -44,8 +44,12 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="mt19937ar.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Stego.cs" />
+    <Compile Include="StegoAlg.cs" />
+    <Compile Include="StegoStream.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
