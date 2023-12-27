@@ -24,7 +24,7 @@ namespace ParallelTextMatchCipherConsole
             const int n = 36;
             const int blockSize = 7;
 
-            string sourceText = @"Га́рри Ки́мович Каспа́ров (фамилия при рождении Вайнште́йн; род. 13 апреля 1963, 
+            string sourceText = @"Гарри Кимович Каспаров (фамилия при рождении Вайнштейн; род. 13 апреля 1963, 
 Баку, Азербайджанская ССР, СССР) — советский и российский шахматист,
 13 - й чемпион мира по шахматам, шахматный литератор и политик, часто
 признаваемый величайшим шахматистом
@@ -35,7 +35,7 @@ namespace ParallelTextMatchCipherConsole
             var regex = new Regex($@"({baseRegex})|((.(?!{baseRegex}))*.)", RegexOptions.Singleline);
 
             var stegoMask = new Stegomask(n);
-            var stegoAlg = new StegoAlg(n, stegoMask.GetEtalons(), stegoMask.GetKey());
+            var stegoAlg = new StegoAlg(n);
             var fragments = new ConcurrentBag<CipherDataSet>(); // Конкурентная коллекция для хранения набора <флаг_приватности,индекс_блока,индекс_соответствия,текстовый_блок>
 
             Parallel.ForEach(textBlocks, (block, blockState, i_b) =>
